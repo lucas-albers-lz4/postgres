@@ -52,7 +52,7 @@ jobs:
         run: ${{ matrix.runs.images }}
 
   publish:
-    needs: test
+    needs: [test, generate-jobs]
     runs-on: ubuntu-latest
     strategy: ${{ fromJson(needs.generate-jobs.outputs.strategy) }}
     if: github.event_name == 'push'
