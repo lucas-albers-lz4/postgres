@@ -20,6 +20,8 @@ jobs:
       strategy: ${{ steps.generate-jobs.outputs.strategy }}
     steps:
       - uses: actions/checkout@v4
+      - name: Apply Templates
+        run: ./apply-templates.sh
       - uses: docker-library/bashbrew@HEAD
       - id: generate-jobs
         name: Generate Jobs
