@@ -80,4 +80,4 @@ jobs:
           file: ${{ matrix.dir }}/Dockerfile # Assuming Dockerfile is named as such in the variant directory
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: your_dockerhub_username/${{ matrix.name }} # Replace 'your_dockerhub_username' with your actual username
+          tags: ${{ secrets.DOCKER_USERNAME }}/${{ matrix.name }}
