@@ -1,5 +1,13 @@
 # https://github.com/docker-library/postgres
 
+NOTE:
+I forked this to use gosu built with go 1.24 from my fork at: https://github.com/lucas-albers-lz4/gosu
+I updated template images
+Dockerfile-alpine.template
+Dockerfile-debian.template
+and then ran  apply-template.sh to update all the docker images
+
+
 ## Maintained by: [the PostgreSQL Docker Community](https://github.com/docker-library/postgres)
 
 This is the Git repo of the [Docker "Official Image"](https://github.com/docker-library/official-images#what-are-official-images) for [`postgres`](https://hub.docker.com/_/postgres/) (not to be confused with any official `postgres` image provided by `postgres` upstream). See [the Docker Hub page](https://hub.docker.com/_/postgres/) for the full readme on how to use this Docker image and for information regarding contributing and issues.
