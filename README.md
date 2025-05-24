@@ -2,13 +2,14 @@
 
 NOTE:
 I forked this to use gosu built with go 1.24 from my fork at: https://github.com/lucas-albers-lz4/gosu
-I updated template images
+
+I updated template images:
 
 Dockerfile-alpine.template
 
 Dockerfile-debian.template
 
-and then ran  apply-template.sh to update all the docker images
+and then ran  apply-template.sh to update all the Dockerfiles
 
 
 ## Maintained by: [the PostgreSQL Docker Community](https://github.com/docker-library/postgres)
