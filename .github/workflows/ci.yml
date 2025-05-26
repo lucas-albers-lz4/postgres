@@ -6,6 +6,15 @@ on:
   schedule:
     - cron: 0 0 * * 0
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Platforms to build for (comma-separated)'
+        default: 'linux/amd64,linux/arm64'
+        required: false
+
+env:
+  REGISTRY: docker.io
+  IMAGE_BASE_NAME: ${{ secrets.DOCKER_USERNAME || 'postgres' }}
 
 defaults:
   run:
@@ -18,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       strategy: ${{ steps.generate-jobs.outputs.strategy }}
+      test_job: ${{ steps.generate-jobs.outputs.test_job }}
     steps:
       - uses: actions/checkout@v4
       - name: Apply Templates
@@ -31,17 +41,93 @@ jobs:
           echo "strategy=$strategy" >> "$GITHUB_OUTPUT"
           jq . <<<"$strategy" # sanity check / debugging aid
           echo "$strategy" > build-strategy.json # Save strategy to file
+          
+          # Extract one job for testing (prefer latest PostgreSQL with Alpine)
+          test_job=$(echo "$strategy" | jq -c '.matrix.include[] | select(.name | test("alpine")) | select(.name | test("17")) | select(.name | test("alpine3.21")) | select(.name | test("force deb build") | not) | limit(1; .)')
+          if [ "$test_job" = "" ]; then
+            # Fallback to any Alpine job if 17-alpine3.21 not found
+            test_job=$(echo "$strategy" | jq -c '.matrix.include[] | select(.name | test("alpine")) | select(.name | test("force deb build") | not) | limit(1; .)')
+          fi
+          if [ "$test_job" = "" ]; then
+            # Final fallback to first job
+            test_job=$(echo "$strategy" | jq -c '.matrix.include[0]')
+          fi
+          echo "test_job=$test_job" >> "$GITHUB_OUTPUT"
+          echo "Selected test job: $test_job"
+          
       - name: Upload Build Strategy
         uses: actions/upload-artifact@v4
         with:
           name: build-strategy
           path: build-strategy.json
 
-  test:
+  # First job: Build and push one test image
+  test-single:
     needs: generate-jobs
+    name: Test Single Image - ${{ fromJson(needs.generate-jobs.outputs.test_job).name }}
+    runs-on: ${{ fromJson(needs.generate-jobs.outputs.test_job).os }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Environment
+        run: ${{ fromJson(needs.generate-jobs.outputs.test_job).runs.prepare }}
+      - name: Pull Dependencies
+        run: ${{ fromJson(needs.generate-jobs.outputs.test_job).runs.pull }}
+      - name: Build ${{ fromJson(needs.generate-jobs.outputs.test_job).name }}
+        run: ${{ fromJson(needs.generate-jobs.outputs.test_job).runs.build }}
+      - name: History ${{ fromJson(needs.generate-jobs.outputs.test_job).name }}
+        run: ${{ fromJson(needs.generate-jobs.outputs.test_job).runs.history }}
+      - name: Test ${{ fromJson(needs.generate-jobs.outputs.test_job).name }}
+        run: ${{ fromJson(needs.generate-jobs.outputs.test_job).runs.test }}
+      - name: '"docker images"'
+        run: ${{ fromJson(needs.generate-jobs.outputs.test_job).runs.images }}
+      
+      # Docker push steps
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Extract metadata for test image
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/${{ fromJson(needs.generate-jobs.outputs.test_job).name }}
+          tags: |
+            type=raw,value=test-latest
+            type=raw,value=test-${{ github.sha }}
+            type=ref,event=branch,prefix=test-
+            type=ref,event=tag,prefix=test-
+      
+      - name: Build and push test image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ fromJson(needs.generate-jobs.outputs.test_job).dir }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: ${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+
+  # Second job: Build and test all remaining images (only if test-single succeeds)
+  test-remaining:
+    needs: [generate-jobs, test-single]
+    # yamllint disable-line rule:line-length
     strategy: ${{ fromJson(needs.generate-jobs.outputs.strategy) }}
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    # Skip the job that was already tested
+    # yamllint disable-line rule:line-length
+    if: matrix.name != fromJson(needs.generate-jobs.outputs.test_job).name
     steps:
       - uses: actions/checkout@v4
       - name: Prepare Environment
@@ -56,3 +142,55 @@ jobs:
         run: ${{ matrix.runs.test }}
       - name: '"docker images"'
         run: ${{ matrix.runs.images }}
+
+  # Third job: Push all remaining images (only if all tests pass)
+  push-remaining:
+    needs: [generate-jobs, test-single, test-remaining]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    if: success() && github.event_name != 'pull_request'
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.generate-jobs.outputs.strategy).matrix.include }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/${{ matrix.name }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,format=short
+      
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        # Skip the test job that was already pushed
+        if: matrix.name != fromJson(needs.generate-jobs.outputs.test_job).name
+        with:
+          context: ${{ matrix.dir }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: ${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max

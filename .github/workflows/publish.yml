@@ -49,7 +49,9 @@ jobs:
 
       - name: Read Build Strategy
         id: read_strategy
-        run: cat build-strategy.json >> "$GITHUB_OUTPUT"
+        run: |
+          strategy=$(cat build-strategy.json)
+          echo "strategy=$strategy" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
