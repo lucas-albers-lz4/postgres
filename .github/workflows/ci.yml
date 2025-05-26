@@ -42,6 +42,10 @@ jobs:
           jq . <<<"$strategy" # sanity check / debugging aid
           echo "$strategy" > build-strategy.json # Save strategy to file
           
+          # Debug: Show first few jobs to understand structure
+          echo "First 3 jobs from strategy:"
+          echo "$strategy" | jq -c '.matrix.include[0:3][]'
+          
           # Extract one job for testing (prefer latest PostgreSQL with Alpine)
           test_job=$(echo "$strategy" | jq -c '.matrix.include[] | select(.name | test("alpine")) | select(.name | test("17")) | select(.name | test("alpine3.21")) | select(.name | test("force deb build") | not) | limit(1; .)')
           if [ "$test_job" = "" ]; then
@@ -106,17 +110,32 @@ jobs:
             type=ref,event=branch,prefix=test-
             type=ref,event=tag,prefix=test-
       
-      - name: Build and push test image
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ fromJson(needs.generate-jobs.outputs.test_job).dir }}
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: ${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: mode=max
+      - name: Debug job info
+        run: |
+          echo "Test job info:"
+          echo '${{ needs.generate-jobs.outputs.test_job }}' | jq .
+          echo "Directory: ${{ fromJson(needs.generate-jobs.outputs.test_job).dir }}"
+          ls -la "${{ fromJson(needs.generate-jobs.outputs.test_job).dir }}" || echo "Directory not found"
+      
+      - name: Tag and push test image
+        if: github.event_name != 'pull_request'
+        run: |
+          # Get the image that was built by the previous steps
+          built_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -1)
+          echo "Built image: $built_image"
+          
+          # Tag with our desired names from metadata action
+          tags="${{ steps.meta.outputs.tags }}"
+          echo "Target tags: $tags"
+          
+          # Convert multiline tags to array and process each
+          echo "$tags" | while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              echo "Tagging as: $tag"
+              docker tag "$built_image" "$tag"
+              docker push "$tag"
+            fi
+          done
 
   # Second job: Build and test all remaining images (only if test-single succeeds)
   test-remaining:
@@ -211,15 +230,34 @@ jobs:
             echo "Will push $current_name"
           fi
       
-      - name: Build and push image
-        uses: docker/build-push-action@v5
+      - name: Prepare Environment
         if: steps.should_skip_push.outputs.skip != 'true'
-        with:
-          context: ${{ matrix.dir }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: ${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: mode=max
+        run: ${{ matrix.runs.prepare }}
+      
+      - name: Pull Dependencies
+        if: steps.should_skip_push.outputs.skip != 'true'
+        run: ${{ matrix.runs.pull }}
+      
+      - name: Build image
+        if: steps.should_skip_push.outputs.skip != 'true'
+        run: ${{ matrix.runs.build }}
+      
+      - name: Tag and push image
+        if: steps.should_skip_push.outputs.skip != 'true'
+        run: |
+          # Get the image that was built
+          built_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -1)
+          echo "Built image: $built_image"
+          
+          # Tag with our desired names from metadata action
+          tags="${{ steps.meta.outputs.tags }}"
+          echo "Target tags: $tags"
+          
+          # Convert multiline tags to array and process each
+          echo "$tags" | while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              echo "Tagging as: $tag"
+              docker tag "$built_image" "$tag"
+              docker push "$tag"
+            fi
+          done
