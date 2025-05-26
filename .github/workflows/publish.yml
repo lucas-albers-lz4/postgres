@@ -16,6 +16,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Dependencies for github-script
+        run: npm install adm-zip
+
       - name: Download Build Strategy
         uses: actions/github-script@v6
         with:
@@ -38,14 +41,15 @@ jobs:
             const { finished } = require('stream/promises');
             
             // Extract the build-strategy.json from the zip archive
-            const zip = new (require('adm-zip'))(Buffer.from(download.data));
+            const AdmZip = require('adm-zip');
+            const zip = new AdmZip(Buffer.from(download.data));
             const zipEntries = zip.getEntries();
             const strategyEntry = zipEntries.find(entry => entry.entryName === 'build-strategy.json');
             fs.writeFileSync('build-strategy.json', strategyEntry.getData());
 
       - name: Read Build Strategy
         id: read_strategy
-        run: echo "strategy=$(cat build-strategy.json)" >> "$GITHUB_OUTPUT"
+        run: cat build-strategy.json >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
