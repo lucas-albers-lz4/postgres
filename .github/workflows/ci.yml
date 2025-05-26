@@ -125,22 +125,38 @@ jobs:
     strategy: ${{ fromJson(needs.generate-jobs.outputs.strategy) }}
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    # Skip the job that was already tested
-    # yamllint disable-line rule:line-length
-    if: matrix.name != fromJson(needs.generate-jobs.outputs.test_job).name
     steps:
       - uses: actions/checkout@v4
+      - name: Check if should skip
+        id: should_skip
+        run: |
+          test_job='${{ needs.generate-jobs.outputs.test_job }}'
+          test_name=$(echo "$test_job" | jq -r '.name')
+          current_name='${{ matrix.name }}'
+          if [ "$current_name" = "$test_name" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping $current_name (already tested)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Processing $current_name"
+          fi
       - name: Prepare Environment
+        if: steps.should_skip.outputs.skip != 'true'
         run: ${{ matrix.runs.prepare }}
       - name: Pull Dependencies
+        if: steps.should_skip.outputs.skip != 'true'
         run: ${{ matrix.runs.pull }}
       - name: Build ${{ matrix.name }}
+        if: steps.should_skip.outputs.skip != 'true'
         run: ${{ matrix.runs.build }}
       - name: History ${{ matrix.name }}
+        if: steps.should_skip.outputs.skip != 'true'
         run: ${{ matrix.runs.history }}
       - name: Test ${{ matrix.name }}
+        if: steps.should_skip.outputs.skip != 'true'
         run: ${{ matrix.runs.test }}
       - name: '"docker images"'
+        if: steps.should_skip.outputs.skip != 'true'
         run: ${{ matrix.runs.images }}
 
   # Third job: Push all remaining images (only if all tests pass)
@@ -181,10 +197,23 @@ jobs:
             type=ref,event=tag
             type=sha,format=short
       
+      - name: Check if should skip push
+        id: should_skip_push
+        run: |
+          test_job='${{ needs.generate-jobs.outputs.test_job }}'
+          test_name=$(echo "$test_job" | jq -r '.name')
+          current_name='${{ matrix.name }}'
+          if [ "$current_name" = "$test_name" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping push for $current_name (already pushed as test)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Will push $current_name"
+          fi
+      
       - name: Build and push image
         uses: docker/build-push-action@v5
-        # Skip the test job that was already pushed
-        if: matrix.name != fromJson(needs.generate-jobs.outputs.test_job).name
+        if: steps.should_skip_push.outputs.skip != 'true'
         with:
           context: ${{ matrix.dir }}
           push: true
