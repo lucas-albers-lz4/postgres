@@ -207,9 +207,8 @@ jobs:
       
       - name: Tag and push image
         run: |
-          # Get the first tag from the original build (this will be the primary tag)
-          original_tags=$(echo '${{ matrix.meta.entries[0].tags }}' | jq -r '.[]')
-          primary_tag=$(echo "$original_tags" | head -1)
+          # Get the most recently built image (should be from the previous build step)
+          primary_tag=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -1)
           echo "Primary built tag: $primary_tag"
           
           # Tag with our desired names from metadata action
