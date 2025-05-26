@@ -119,10 +119,10 @@ jobs:
   # Second job: Build and test all remaining images (only if test-single succeeds)
   test-remaining:
     needs: [generate-jobs, test-single]
+    runs-on: ${{ matrix.os }}
     # yamllint disable-line rule:line-length
     strategy: ${{ fromJson(needs.generate-jobs.outputs.strategy) }}
     name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Check if should skip
@@ -207,9 +207,10 @@ jobs:
       
       - name: Tag and push image
         run: |
-          # Get the image that was built
-          built_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -1)
-          echo "Built image: $built_image"
+          # Get the first tag from the original build (this will be the primary tag)
+          original_tags=$(echo '${{ matrix.meta.entries[0].tags }}' | jq -r '.[]')
+          primary_tag=$(echo "$original_tags" | head -1)
+          echo "Primary built tag: $primary_tag"
           
           # Tag with our desired names from metadata action
           tags="${{ steps.meta.outputs.tags }}"
@@ -218,8 +219,8 @@ jobs:
           # Convert multiline tags to array and process each
           echo "$tags" | while IFS= read -r tag; do
             if [ -n "$tag" ]; then
-              echo "Tagging as: $tag"
-              docker tag "$built_image" "$tag"
+              echo "Tagging $primary_tag as: $tag"
+              docker tag "$primary_tag" "$tag"
               docker push "$tag"
             fi
           done
