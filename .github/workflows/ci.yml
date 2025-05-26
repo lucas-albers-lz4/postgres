@@ -14,7 +14,8 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_BASE_NAME: ${{ secrets.DOCKER_USERNAME || 'postgres' }}
+  IMAGE_BASE_NAME: ${{ secrets.DOCKER_USERNAME || 'lalberslz4' }}
+  IMAGE_REPO_NAME: postgresql
 
 defaults:
   run:
@@ -65,10 +66,10 @@ jobs:
           name: build-strategy
           path: build-strategy.json
 
-  # First job: Build and push one test image
+  # First job: Build one test image and verify Docker login
   test-single:
     needs: generate-jobs
-    name: Test Single Image - ${{ fromJson(needs.generate-jobs.outputs.test_job).name }}
+    name: Test Build & Docker Login - ${{ fromJson(needs.generate-jobs.outputs.test_job).name }}
     runs-on: ${{ fromJson(needs.generate-jobs.outputs.test_job).os }}
     permissions:
       contents: read
@@ -88,54 +89,32 @@ jobs:
       - name: '"docker images"'
         run: ${{ fromJson(needs.generate-jobs.outputs.test_job).runs.images }}
       
-      # Docker push steps
+      # Test Docker login to verify credentials work
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Login to DockerHub
+      - name: Test Docker login
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       
-      - name: Extract metadata for test image
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/${{ fromJson(needs.generate-jobs.outputs.test_job).name }}
-          tags: |
-            type=raw,value=test-latest
-            type=raw,value=test-${{ github.sha }}
-            type=ref,event=branch,prefix=test-
-            type=ref,event=tag,prefix=test-
-      
       - name: Debug job info
         run: |
           echo "Test job info:"
           echo '${{ needs.generate-jobs.outputs.test_job }}' | jq .
-          echo "Directory: ${{ fromJson(needs.generate-jobs.outputs.test_job).dir }}"
-          ls -la "${{ fromJson(needs.generate-jobs.outputs.test_job).dir }}" || echo "Directory not found"
-      
-      - name: Tag and push test image
-        if: github.event_name != 'pull_request'
-        run: |
-          # Get the image that was built by the previous steps
+          
+          # Extract directory from meta.dockerfiles
+          job_info='${{ needs.generate-jobs.outputs.test_job }}'
+          directory=$(echo "$job_info" | jq -r '.meta.entries[0].directory')
+          echo "Directory: $directory"
+          ls -la "$directory" || echo "Directory not found"
+          
+          # Show built image (but don't push)
           built_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -1)
           echo "Built image: $built_image"
-          
-          # Tag with our desired names from metadata action
-          tags="${{ steps.meta.outputs.tags }}"
-          echo "Target tags: $tags"
-          
-          # Convert multiline tags to array and process each
-          echo "$tags" | while IFS= read -r tag; do
-            if [ -n "$tag" ]; then
-              echo "Tagging as: $tag"
-              docker tag "$built_image" "$tag"
-              docker push "$tag"
-            fi
-          done
+          echo "✅ Test build successful - Docker login verified"
 
   # Second job: Build and test all remaining images (only if test-single succeeds)
   test-remaining:
@@ -178,8 +157,8 @@ jobs:
         if: steps.should_skip.outputs.skip != 'true'
         run: ${{ matrix.runs.images }}
 
-  # Third job: Push all remaining images (only if all tests pass)
-  push-remaining:
+  # Third job: Build and push all images (only if all tests pass)
+  build-and-push:
     needs: [generate-jobs, test-single, test-remaining]
     runs-on: ubuntu-latest
     permissions:
@@ -209,41 +188,24 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/${{ matrix.name }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/${{ env.IMAGE_REPO_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,format=short
-      
-      - name: Check if should skip push
-        id: should_skip_push
-        run: |
-          test_job='${{ needs.generate-jobs.outputs.test_job }}'
-          test_name=$(echo "$test_job" | jq -r '.name')
-          current_name='${{ matrix.name }}'
-          if [ "$current_name" = "$test_name" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Skipping push for $current_name (already pushed as test)"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "Will push $current_name"
-          fi
+            type=raw,value=${{ matrix.name }}-latest,enable={{is_default_branch}}
+            type=raw,value=${{ matrix.name }}
+            type=ref,event=branch,prefix=${{ matrix.name }}-
+            type=ref,event=tag,prefix=${{ matrix.name }}-
+            type=sha,format=short,prefix=${{ matrix.name }}-
       
       - name: Prepare Environment
-        if: steps.should_skip_push.outputs.skip != 'true'
         run: ${{ matrix.runs.prepare }}
       
       - name: Pull Dependencies
-        if: steps.should_skip_push.outputs.skip != 'true'
         run: ${{ matrix.runs.pull }}
       
       - name: Build image
-        if: steps.should_skip_push.outputs.skip != 'true'
         run: ${{ matrix.runs.build }}
       
       - name: Tag and push image
-        if: steps.should_skip_push.outputs.skip != 'true'
         run: |
           # Get the image that was built
           built_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -1)
