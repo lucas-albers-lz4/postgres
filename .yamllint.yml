@@ -1,0 +1,28 @@
+---
+extends: default
+
+rules:
+  # Allow longer lines for GitHub Actions expressions
+  line-length:
+    max: 120
+    level: warning
+  
+  # Allow truthy values (on/off) which are common in GitHub Actions
+  truthy:
+    allowed-values: ['true', 'false', 'on', 'off']
+  
+  # Relax indentation rules for GitHub Actions expressions
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+  
+  # Allow empty values which are common in GitHub Actions
+  empty-values:
+    forbid-in-block-mappings: false
+    forbid-in-flow-mappings: false
+
+# Ignore specific files or patterns
+ignore: |
+  .github/workflows/ci.yml
+  .github/workflows/publish.yml 
