@@ -11,6 +11,7 @@ Dockerfile-debian.template
 
 and then ran  apply-template.sh to update all the Dockerfiles
 
+and pushed to : lalberslz4/postgresql
 
 ## Maintained by: [the PostgreSQL Docker Community](https://github.com/docker-library/postgres)
 
