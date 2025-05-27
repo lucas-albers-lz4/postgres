@@ -14,7 +14,7 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_BASE_NAME: ${{ secrets.DOCKER_USERNAME || 'lalberslz4' }}
+  IMAGE_BASE_NAME: ${{ secrets.DOCKERHUB_USERNAME || 'lalberslz4' }}
   IMAGE_REPO_NAME: postgresql
 
 defaults:
@@ -121,7 +121,9 @@ jobs:
     needs: [generate-jobs, test-single]
     runs-on: ${{ matrix.os }}
     # yamllint disable-line rule:line-length
-    strategy: ${{ fromJson(needs.generate-jobs.outputs.strategy) }}
+    strategy: 
+      fail-fast: false
+      matrix: ${{ fromJson(needs.generate-jobs.outputs.strategy).matrix }}
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
