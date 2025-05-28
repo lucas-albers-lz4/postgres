@@ -204,24 +204,19 @@ jobs:
       - name: Pull Dependencies
         run: ${{ matrix.runs.pull }}
       
-      - name: Build image
-        run: ${{ matrix.runs.build }}
-      
-      - name: Tag and push image
+      - name: Build and push image with cache
         run: |
-          # Get the most recently built image (should be from the previous build step)
-          primary_tag=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -1)
-          echo "Primary built tag: $primary_tag"
-          
-          # Tag with our desired names from metadata action
-          tags="${{ steps.meta.outputs.tags }}"
-          echo "Target tags: $tags"
-          
-          # Convert multiline tags to array and process each
-          echo "$tags" | while IFS= read -r tag; do
-            if [ -n "$tag" ]; then
-              echo "Tagging $primary_tag as: $tag"
-              docker tag "$primary_tag" "$tag"
-              docker push "$tag"
-            fi
-          done
+          # Define cache image name - using ghcr.io for better limits
+          # Replace 'your-github-username-or-org' with your actual username or organization name
+          CACHE_REF=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.name }}
+          echo "Cache reference: $CACHE_REF"
+ 
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --pull \
+            --cache-from=type=registry,ref=$CACHE_REF \
+            --cache-to=type=registry,ref=$CACHE_REF,mode=max \
+            --metadata-action \
+            --tag ${{ steps.meta.outputs.tags }} \
+            --push \
+            ${{ matrix.dir }}
