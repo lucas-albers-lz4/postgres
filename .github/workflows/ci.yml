@@ -210,7 +210,9 @@ jobs:
           # Replace 'your-github-username-or-org' with your actual username or organization name
           CACHE_REF=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.name }}
           echo "Cache reference: $CACHE_REF"
- 
+
+          echo "Matrix directory: ${{ matrix.dir }}"
+
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --pull \
@@ -220,4 +222,4 @@ jobs:
             --push \
             # Add cache mount for compiler cache
             # --mount=type=cache,target=$COMPILER_CACHE_DIR \
-            ${{ matrix.dir }}
+            ${{ matrix.dir || '.' }}
