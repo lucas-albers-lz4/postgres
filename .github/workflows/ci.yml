@@ -216,7 +216,8 @@ jobs:
             --pull \
             --cache-from=type=registry,ref=$CACHE_REF \
             --cache-to=type=registry,ref=$CACHE_REF,mode=max \
-            --metadata-action \
             --tag ${{ steps.meta.outputs.tags }} \
             --push \
+            # Add cache mount for compiler cache
+            # --mount=type=cache,target=$COMPILER_CACHE_DIR \
             ${{ matrix.dir }}
