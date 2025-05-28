@@ -213,6 +213,10 @@ jobs:
 
           echo "Matrix directory: ${{ matrix.dir }}"
 
+          # Define build context with a default of '.' if matrix.dir is empty using bash parameter expansion
+          BUILD_CONTEXT=${{ matrix.dir }}; BUILD_CONTEXT=${BUILD_CONTEXT:-.}
+          echo "Using build context: $BUILD_CONTEXT"
+
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --pull \
@@ -222,4 +226,4 @@ jobs:
             --push \
             # Add cache mount for compiler cache
             # --mount=type=cache,target=$COMPILER_CACHE_DIR \
-            ${{ matrix.dir || '.' }}
+            $BUILD_CONTEXT
