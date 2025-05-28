@@ -217,13 +217,22 @@ jobs:
           BUILD_CONTEXT=${{ matrix.dir }}; BUILD_CONTEXT=${BUILD_CONTEXT:-.}
           echo "Using build context: $BUILD_CONTEXT"
 
+          # Convert multi-line tags to space-separated format for docker buildx
+          TAGS="${{ steps.meta.outputs.tags }}"
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              TAG_ARGS="$TAG_ARGS --tag $tag"
+            fi
+          done <<< "$TAGS"
+          
+          echo "Tag arguments: $TAG_ARGS"
+          
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --pull \
             --cache-from=type=registry,ref=$CACHE_REF \
             --cache-to=type=registry,ref=$CACHE_REF,mode=max \
-            --tag ${{ steps.meta.outputs.tags }} \
+            $TAG_ARGS \
             --push \
-            # Add cache mount for compiler cache
-            # --mount=type=cache,target=$COMPILER_CACHE_DIR \
             $BUILD_CONTEXT
